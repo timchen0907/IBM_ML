@@ -1,0 +1,591 @@
+---
+title: "ML_midterm_proposal"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+#import package
+library(glmnet)
+library(lava)
+library(stringr)
+library(dummies)
+library(corrplot)
+library(VIF)
+library(MASS)
+library(rpart.plot)
+library(tree)
+library(Metrics)
+library(randomForest)
+library(gvlma)
+library(car)
+library(dplyr)
+library(tidyr)
+library(xgboost)
+library(caret)
+library(tidyverse)
+```
+```{r}
+data <- read.csv("Melbourne_housing_FULL.csv")
+```
+```{r}
+#data preproccessing
+data$Suburb<- as.factor(data$Suburb)
+data$Type<- as.factor(data$Type)
+data$Method<- as.factor(data$Method)
+data$SellerG<- as.factor(data$SellerG)
+data$Date<-as.factor(data$Date)
+data$Postcode<-as.factor(data$Postcode)
+data$CouncilArea<-as.factor(data$CouncilArea)
+data$Regionname<- as.factor(data$Regionname)
+data$Propertycount<-as.factor(data$Propertycount)
+data$Address <- as.character(data$Address)    
+data$Rooms <- as.factor(data$Rooms)   
+data$Distance<- as.integer(data$Distance) 
+data$Bathroom <- as.factor(data$Bathroom)    
+data$Car <- as.numeric(data$Car)  
+```
+```{r}
+#check data type
+sapply(data, class) 
+```
+
+```{r}
+#Remove NA values of Price as its dependent variable
+mel1 <- subset(data,(!is.na(data[,5])))
+colSums(is.na(mel1))
+dim(mel1)
+```
+```{r}
+#Removing >60%
+mel2 <- mel1[,c(1:14,16:21)]
+colSums(is.na(mel2))
+dim(mel2)
+```
+
+```{r}
+mel4 <- mel2
+# no preproccessing
+mel5 <- mel1
+
+#73% of the data for the rooms and Bedrooms is same i.e example if rooms==2 then bedroom2 ==2
+temp <- mel4[,c("Rooms","Bedroom2")]
+bedroom2 <- temp[which(temp$Rooms == temp$Bedroom2),]
+(length(bedroom2$Rooms) / length(mel4$Rooms)) * 100
+
+#thus assigning the NA's of Bedrooms with the values of rooms.
+my.na <- is.na(mel4$Bedroom2)
+mel4$Bedroom2[my.na] <- mel4$Rooms[my.na]
+colSums(is.na(mel4))
+```
+```{r}
+bed.land.df <- mel4[,c("Bedroom2","Landsize")]
+unique(bed.land.df$Bedroom2)
+colSums(is.na(bed.land.df))
+bed.land.df <- na.omit(bed.land.df)
+bed.land.df <- bed.land.df[which(bed.land.df$Landsize > 0),]
+
+colSums(is.na(bed.land.df))
+
+bed.land.df_0 <- bed.land.df[which(bed.land.df$Bedroom2 == 0),]
+bed.land.df_1 <-  bed.land.df[which(bed.land.df$Bedroom2 == 1),]
+bed.land.df_2 <- bed.land.df[which(bed.land.df$Bedroom2 == 2),]
+bed.land.df_3 <-  bed.land.df[which(bed.land.df$Bedroom2 == 3),]
+bed.land.df_4 <- bed.land.df[which(bed.land.df$Bedroom2 == 4),]
+bed.land.df_5 <-  bed.land.df[which(bed.land.df$Bedroom2 == 5),]
+bed.land.df_6 <- bed.land.df[which(bed.land.df$Bedroom2 == 6),]
+bed.land.df_7 <-  bed.land.df[which(bed.land.df$Bedroom2 == 7),]
+
+#Replacing Na values with 0
+mel4$Landsize[which(is.na(mel4$Landsize))] <- 0
+```
+```{r}
+#Replacing 0 values with median values
+mel4$Landsize[which(mel4$Bedroom2 == 0 & mel4$Landsize== 0)] <- median(bed.land.df_0$Landsize[which(bed.land.df_0$Landsize > 1)]) 
+mel4$Landsize[which(mel4$Bedroom2 == 1 & mel4$Landsize== 0)] <- median(bed.land.df_1$Landsize[which(bed.land.df_1$Landsize > 1)]) 
+mel4$Landsize[which(mel4$Bedroom2 == 2 & mel4$Landsize== 0)] <- median(bed.land.df_2$Landsize[which(bed.land.df_2$Landsize > 1)]) 
+mel4$Landsize[which(mel4$Bedroom2 == 3 & mel4$Landsize== 0) ] <- median(bed.land.df_3$Landsize[which(bed.land.df_3$Landsize > 1)]) 
+mel4$Landsize[which(mel4$Bedroom2 == 4 & mel4$Landsize== 0) ] <- median(bed.land.df_4$Landsize[which(bed.land.df_4$Landsize > 1)]) 
+mel4$Landsize[which(mel4$Bedroom2 == 5 & mel4$Landsize== 0) ] <- median(bed.land.df_5$Landsize[which(bed.land.df_5$Landsize > 1)]) 
+mel4$Landsize[which(mel4$Bedroom2 == 6 & mel4$Landsize== 0) ] <- median(bed.land.df_6$Landsize[which(bed.land.df_6$Landsize > 1)]) 
+mel4$Landsize[which(mel4$Bedroom2 == 7 & mel4$Landsize== 0) ] <- median(bed.land.df_7$Landsize[which(bed.land.df_7$Landsize > 1)]) 
+
+#Checking if all the value got atleast 100 those are zero
+mel4$Landsize[which(mel4$Landsize < 120)]
+summary(mel4)
+
+#Car Column
+#Putting median in all the NA values of Car column
+mel4$Car <- as.numeric(mel4$Car)
+mel4$Car[is.na(mel4$Car)] <- median(mel4$Car[which(!is.na(mel4$Car))])
+colSums(is.na(mel4))
+
+#Putting 0 in all the NA values of YearBuilt column
+mel4$YearBuilt <- as.numeric(mel4$YearBuilt)
+mel4$YearBuilt[which(is.na(mel4$YearBuilt))] <- 0
+```
+```{r}
+# 按照最佳比例比對
+mel4$Bathroom <- as.integer(mel4$Bathroom)
+mel4$Bathroom[which(is.na(mel4$Bathroom) & mel4$Bedroom2== 1)] <- 1
+mel4$Bathroom[which(is.na(mel4$Bathroom) & mel4$Bedroom2== 2)] <- 1
+mel4$Bathroom[which(is.na(mel4$Bathroom) & mel4$Bedroom2== 3)] <- 2
+mel4$Bathroom[which(is.na(mel4$Bathroom) & mel4$Bedroom2== 4)] <- 2.5
+mel4$Bathroom[which(is.na(mel4$Bathroom) & mel4$Bedroom2== 5)] <- 3
+mel4$Bathroom[which(is.na(mel4$Bathroom) & mel4$Bedroom2== 6)] <- 4
+mel4$Bathroom[which(is.na(mel4$Bathroom) & mel4$Bedroom2== 7)] <- 4.5
+
+summary(mel4)
+
+mel4 <- mel4[which(mel4$CouncilArea != '#N/A'),]
+colSums(is.na(mel4))
+dim(mel4)
+
+#reverting back the datatypes which were changed in order to calculate the median.
+mel4$Car <- as.numeric(mel4$Car)
+mel4$Bathroom <- as.factor(mel4$Bathroom)
+mel4$YearBuilt <- as.factor(mel4$YearBuilt)
+mel4$Rooms <- as.factor(mel4$Rooms)
+```
+```{r}
+#omitting the missing values from lattitude and longitude
+mel4 <- na.omit(mel4)
+
+#------------
+mel4$Postcode <- droplevels(mel4$Postcode)
+mel4$CouncilArea <- droplevels(mel4$CouncilArea)
+mel4$Regionname <- droplevels(mel4$Regionname)
+mel4$Propertycount <- droplevels(mel4$Propertycount)
+str(mel4)
+#dropping unused levels from the dataframe.
+mel4$Postcode<- as.factor(mel4$Postcode)
+mel4$CouncilArea<- as.factor(mel4$CouncilArea)
+mel4$Regionname<- as.factor(mel4$Regionname)
+mel4$Propertycount<- as.factor(mel4$Propertycount)
+mel4$Postcode <- droplevels(mel4$Postcode)
+mel4$CouncilArea <- droplevels(mel4$CouncilArea)
+mel4$Regionname <- droplevels(mel4$Regionname)
+mel4$Propertycount <- droplevels(mel4$Propertycount)
+str(mel4)
+
+table(mel4$CouncilArea)
+#-------------
+#converting RegionName into numeric
+mel4$Regionname <- as.character(mel4$Regionname)
+mel4$Regionname[mel4$Regionname == 'Eastern Metropolitan'] <- 1
+mel4$Regionname[mel4$Regionname == 'Eastern Victoria'] <- 2
+mel4$Regionname[mel4$Regionname == 'Northern Metropolitan'] <- 3
+mel4$Regionname[mel4$Regionname == 'Northern Victoria'] <- 4
+mel4$Regionname[mel4$Regionname == 'South-Eastern Metropolitan'] <- 5
+mel4$Regionname[mel4$Regionname == 'Southern Metropolitan'] <- 6
+mel4$Regionname[mel4$Regionname == 'Western Metropolitan'] <- 7
+mel4$Regionname[mel4$Regionname == 'Western Victoria'] <- 8
+
+#converting method into numeric
+mel4$Method = as.character(mel4$Method)
+mel4$Method[mel4$Method == 'PI'] <- 1
+mel4$Method[mel4$Method == 'PN'] <- 2
+mel4$Method[mel4$Method == 'S'] <- 3
+mel4$Method[mel4$Method == 'SA'] <- 4
+mel4$Method[mel4$Method == 'SN'] <- 5
+mel4$Method[mel4$Method == 'SP'] <- 6
+mel4$Method[mel4$Method == 'SS'] <- 7
+mel4$Method[mel4$Method == 'VB'] <- 8
+mel4$Method[mel4$Method == 'W'] <- 9
+
+#converting type into numeric
+mel4$Type <- as.character(mel4$Type)
+mel4$Type[mel4$Type == 'h'] <- 1
+mel4$Type[mel4$Type == 't'] <- 2
+mel4$Type[mel4$Type == 'u'] <- 3
+```
+```{r}
+mel4 <- mel4 %>% separate(Date,sep = "/",into = c("Day","Month","Year"))
+
+#converting month into season.
+#spring (March, April, May), 
+#summer (June, July, August), 
+#autumn (September, October, November) 
+#winter (December, January, February).
+
+mel4$Season <- mel4$Month
+mel4$Season <- as.numeric(mel4$Season)
+mel4$Season[which(mel4$Season == 3 | mel4$Season == 4 | mel4$Season == 5)] = "Spring"
+mel4$Season[which(mel4$Season == 6 |mel4$Season == 7 | mel4$Season == 8)] = "Summer"
+mel4$Season[which(mel4$Season == 9 | mel4$Season == 10 | mel4$Season == 11)] = "Autumn"
+mel4$Season[which(mel4$Season == 12 | mel4$Season == 1 | mel4$Season == 2)] = "Winter"
+
+mel4$Season <- as.character(mel4$Season)
+mel4$Season[mel4$Season == 'Spring'] <- 1
+mel4$Season[mel4$Season == 'Summer'] <- 2
+mel4$Season[mel4$Season == 'Autumn'] <- 3
+mel4$Season[mel4$Season == 'Winter'] <- 4
+
+#correlation checking of data
+my_corrdata <- mel4[,-c(1,2,7,18)]
+#converting the datacolumn into numeric
+my_corrdata$Regionname <- as.numeric(my_corrdata$Regionname)
+my_corrdata$Method <- as.numeric(my_corrdata$Method)
+my_corrdata$Type <- as.numeric(my_corrdata$Type)
+my_corrdata$Rooms <- as.numeric(my_corrdata$Rooms)
+my_corrdata$Distance <- as.numeric(my_corrdata$Distance)
+my_corrdata$Postcode <- as.numeric(my_corrdata$Postcode)
+my_corrdata$Bedroom2 <- as.numeric(my_corrdata$Bedroom2)
+my_corrdata$Bathroom <- as.numeric(my_corrdata$Bathroom)
+my_corrdata$Car <- as.numeric(my_corrdata$Car)
+my_corrdata$YearBuilt <- as.numeric(my_corrdata$YearBuilt)
+my_corrdata$Day <- as.numeric(my_corrdata$Day)
+my_corrdata$Month <- as.numeric(my_corrdata$Month)
+my_corrdata$Year <- as.numeric(my_corrdata$Year)
+my_corrdata$Propertycount <- as.numeric(my_corrdata$Propertycount)
+my_corrdata$Season <- as.numeric(my_corrdata$Season)
+corr <- round(cor(my_corrdata),1)
+
+corrplot(corr)
+```
+
+
+```{r}
+# no preproccessing
+mel5 <- na.omit(mel5)
+#------------
+#dropping unused levels from the dataframe.
+mel5$Postcode<- as.factor(mel5$Postcode)
+mel5$CouncilArea<- as.factor(mel5$CouncilArea)
+mel5$Regionname<- as.factor(mel5$Regionname)
+mel5$Propertycount<- as.factor(mel5$Propertycount)
+mel5$Postcode <- droplevels(mel5$Postcode)
+mel5$CouncilArea <- droplevels(mel5$CouncilArea)
+mel5$Regionname <- droplevels(mel5$Regionname)
+mel5$Propertycount <- droplevels(mel5$Propertycount)
+str(mel5)
+#
+#converting RegionName into numeric
+mel5$Regionname <- as.character(mel5$Regionname)
+mel5$Regionname[mel5$Regionname == 'Eastern Metropolitan'] <- 1
+mel5$Regionname[mel5$Regionname == 'Eastern Victoria'] <- 2
+mel5$Regionname[mel5$Regionname == 'Northern Metropolitan'] <- 3
+mel5$Regionname[mel5$Regionname == 'Northern Victoria'] <- 4
+mel5$Regionname[mel5$Regionname == 'South-Eastern Metropolitan'] <- 5
+mel5$Regionname[mel5$Regionname == 'Southern Metropolitan'] <- 6
+mel5$Regionname[mel5$Regionname == 'Western Metropolitan'] <- 7
+mel5$Regionname[mel5$Regionname == 'Western Victoria'] <- 8
+
+#converting method into numeric
+mel5$Method = as.character(mel5$Method)
+mel5$Method[mel5$Method == 'PI'] <- 1
+mel5$Method[mel5$Method == 'PN'] <- 2
+mel5$Method[mel5$Method == 'S'] <- 3
+mel5$Method[mel5$Method == 'SA'] <- 4
+mel5$Method[mel5$Method == 'SN'] <- 5
+mel5$Method[mel5$Method == 'SP'] <- 6
+mel5$Method[mel5$Method == 'SS'] <- 7
+mel5$Method[mel5$Method == 'VB'] <- 8
+mel5$Method[mel5$Method == 'W'] <- 9
+
+#converting type into numeric
+mel5$Type <- as.character(mel5$Type)
+mel5$Type[mel5$Type == 'h'] <- 1
+mel5$Type[mel5$Type == 't'] <- 2
+mel5$Type[mel5$Type == 'u'] <- 3
+
+#
+mel5$Regionname <- as.factor(mel5$Regionname) #one hot needed
+mel5$Method <- as.factor(mel5$Method) #one hot needed
+mel5$Type <- as.factor(mel5$Type) #one hot needed 
+mel5$Rooms <- as.numeric(mel5$Rooms) 
+mel5$Car <- as.numeric(mel5$Car)
+mel5$Bathroom <- as.numeric(mel5$Bathroom) 
+mel5$YearBuilt <- as.numeric(mel5$YearBuilt)
+mel5$Propertycount <- as.character(mel5$Propertycount) 
+mel5$Propertycount <- as.numeric(mel5$Propertycount)
+#one hot encoding of type
+type_ <- factor(mel5$Type)
+dumm <- as.data.frame(model.matrix(~type_)[,-1])
+mel5 <- cbind(dumm,mel5)
+
+#one hot encoding of Method
+Method_ <- factor(mel5$Method)
+dumm <- as.data.frame(model.matrix(~Method_)[,-1])
+mel5 <- cbind(dumm,mel5)
+#
+mel5$CouncilArea = as.character(mel5$CouncilArea)
+save<- list()
+list<- mel5$CouncilArea
+u_list<- unique(list)
+count<-1
+for (i in u_list){
+  mel5$CouncilArea[mel5$CouncilArea == i]<- count
+  count<-count+1
+}
+#
+raw_df<-mel5[,-c(7,8,10,12,13,14,16,23)]
+#
+#check data type
+sapply(raw_df, class) 
+```
+
+
+
+```{r}
+#one hot encoding and datatype corrections
+mel4$Regionname <- as.factor(mel4$Regionname) #one hot needed
+mel4$Method <- as.factor(mel4$Method) #one hot needed
+mel4$Type <- as.factor(mel4$Type) #one hot needed 
+mel4$Rooms <- as.factor(mel4$Rooms) 
+mel4$Car <- as.numeric(mel4$Car)
+mel4$Bedroom2 <- as.numeric(mel4$Bedroom2) 
+mel4$Bathroom <- as.numeric(mel4$Bathroom) 
+mel4$YearBuilt <- as.numeric(mel4$YearBuilt)
+mel4$Day <- as.numeric(mel4$Day)
+mel4$Month <- as.factor(mel4$Month) #as we have create a new variable season using Month we will not be using month
+mel4$Propertycount <- as.character(mel4$Propertycount) 
+mel4$Propertycount <- as.numeric(mel4$Propertycount)
+mel4$Season <- as.numeric(mel4$Season) #one hot encoding needed
+
+#one hot encoding of type
+type_ <- factor(mel4$Type)
+dumm <- as.data.frame(model.matrix(~type_)[,-1])
+mel4 <- cbind(dumm,mel4)
+
+#one hot encoding of Method
+Method_ <- factor(mel4$Method)
+dumm <- as.data.frame(model.matrix(~Method_)[,-1])
+mel4 <- cbind(dumm,mel4)
+
+#one hot encoding of season
+Season_ <- factor(mel4$Season)
+dumm <- as.data.frame(model.matrix(~Season_)[,-1])
+mel4 <- cbind(dumm,mel4)
+
+mel4$CouncilArea <- str_replace_all(mel4$CouncilArea,c(" "="_"))
+Council_ <- factor(mel4$CouncilArea)
+dumm <- as.data.frame(model.matrix(~Council_)[,-1])
+mel4 <- cbind(dumm,mel4)
+
+#test_df <- mel4[,-c(40,41,42,43,44,45,47,48,51,54,55,56,58,59,60,61)]
+
+colnames(mel4)
+```
+```{r}
+df <- mel4[,-c(42,43,44,45,47,48,49,50,51,53,58,59,62,63,64)]
+colnames(df)
+see <-mel4[,c(42,43,44,45,47,48,49,50,51,53,58,59,62,63,64)]
+```
+
+
+
+```{r}
+# with preproccessing
+set.seed(1)
+## 75% of the sample size
+
+smp_size <- floor(0.7 * nrow(df))
+
+train_per <- sample(seq_len(nrow(df)), size = smp_size)
+
+train <- df[train_per, ]
+test <- df[-train_per, ]
+```
+```{r}
+# linear
+linear_model <- lm(Price ~ .,data = train)
+predicted_ys <- predict(linear_model,test)
+observed_ys <- test$Price
+RMSE_linear <- sqrt(sum((observed_ys - predicted_ys) ^ 2)/dim(test)[1])
+RMSE_linear
+```
+```{r}
+# lasso
+# cv
+x <- model.matrix(Price~.,data=train)
+x_train <- x[,-1]
+y_train <- train$Price
+cv.lasso <-  cv.glmnet(x = x_train, y = y_train,type.measure = "mse")
+best.lambda <- cv.lasso$lambda.min
+RMSE_lasso_train<-sqrt(cv.lasso$cvm[cv.lasso$lambda == best.lambda])
+# fit
+fit1 <-glmnet(x = x_train, y = y_train, alpha = 1, lambda = best.lambda )
+```
+```{r}
+# predict
+x_1 <-model.matrix(Price~.,data=test)
+x_test_lasso <- x_1[,-1]
+
+predicted_lasso <- predict(fit1, s = best.lambda, x_test_lasso)
+observed_lasso <- test$Price
+RMSE_lasso_test <- sqrt(sum((observed_lasso - predicted_lasso) ^ 2)/dim(test)[1])
+```
+```{r}
+# rf
+rf <- randomForest(Price ~ .,data = train,.multicombine=TRUE)
+rf.pred <- predict(rf,test)
+RMSE_rf_test <- sqrt(sum((test[,"Price"]-rf.pred)^2)/dim(test)[1])
+```
+
+```{r}
+# xgb
+
+set.seed(1)  # For reproducibility
+
+# Create index for testing and training data
+inTrain <- createDataPartition(y = df$Price, p = 0.7, list = FALSE)
+
+# subset power_plant data to training
+training <- df[inTrain,]
+
+
+# subset the rest to test
+testing <- df[-inTrain,]
+```
+
+```{r}
+xgb_train_x<- xgb.DMatrix(as.matrix(training%>% select(-Price)))
+xgb_train_y<-training$Price
+xgb_test_x<-xgb.DMatrix(as.matrix(testing%>% select(-Price)))
+xgb_test_y<-testing$Price
+```
+```{r}
+#cv
+xgb_trcontrol = trainControl(
+  method = "cv",
+  number = 3,  
+  allowParallel = TRUE,
+  verboseIter = FALSE,
+  returnData = FALSE
+)
+
+#grid
+xgbGrid <- expand.grid(nrounds = c(100,200),  # this is n_estimators in the python code above
+                       max_depth = c(10, 15, 20),
+                       colsample_bytree = seq(0.5, 0.9, length.out = 5),
+                       ## The values below are default values in the sklearn-api. 
+                       eta = 0.1,
+                       gamma=0,
+                       min_child_weight = 1,
+                       subsample = 1
+                      )
+```
+```{r}
+set.seed(1) 
+
+xgb_model = train(
+  xgb_train_x, xgb_train_y,  
+  trControl = xgb_trcontrol,
+  tuneGrid = xgbGrid,
+  method = "xgbTree"
+)
+predicted = predict(xgb_model, xgb_test_x)
+residuals = xgb_test_y - predicted
+RMSE_xgb_test = sqrt(mean(residuals^2))
+```
+
+```{r}
+# 不做資料前處理 (老師Feedback)
+set.seed(1)
+
+smp_size_rawdata <- floor(0.7* nrow(raw_df))
+train_per_raw <- sample(seq_len(nrow(raw_df)), size = smp_size_rawdata)
+
+train_rawdata <- raw_df[train_per_raw, ]
+test_rawdata <- raw_df[-train_per_raw, ]
+
+# linear
+linear_model_raw <- lm(Price ~ .,data = train_rawdata)
+
+predicted_raw <- predict(linear_model_raw,test_rawdata)
+observed_raw <- test_rawdata$Price
+RMSE_linear_raw <- sqrt(sum((observed_raw - predicted_raw) ^ 2)/dim(test_rawdata)[1])
+RMSE_linear_raw
+# lasso
+# cv
+x_raw <- model.matrix(Price~.,data=train_rawdata)
+x_train_raw <- x_raw[,-1]
+y_train_raw <- train_rawdata$Price
+cv.lasso_raw <-  cv.glmnet(x = x_train_raw, y = y_train_raw,type.measure = "mse")
+best.lambda_raw <- cv.lasso_raw$lambda.min
+RMSE_lasso_train_raw<-sqrt(cv.lasso_raw$cvm[cv.lasso_raw$lambda == best.lambda_raw])
+# fit
+fit_raw_lasso <-glmnet(x = x_train_raw, y = y_train_raw, alpha = 1, lambda = best.lambda_raw)
+# predict
+x_raw <-model.matrix(Price~.,data=test_rawdata)
+x_test_lasso_raw <- x_raw[,-1]
+
+predicted_lasso_raw <- predict(fit_raw_lasso, s = best.lambda_raw, x_test_lasso_raw)
+observed_lasso_raw <- test_rawdata$Price
+RMSE_lasso_test_raw <- sqrt(sum((observed_lasso_raw - predicted_lasso_raw) ^ 2)/dim(test_rawdata)[1])
+
+# rf
+rf_raw <- randomForest(Price ~ .,data = train_rawdata)
+rf.pred_raw <- predict(rf_raw,test_rawdata)
+RMSE_rf_raw <- sqrt(sum((test_rawdata[,"Price"]-rf.pred_raw)^2)/dim(test_rawdata)[1])
+```
+```{r}
+# xgb
+set.seed(1) 
+
+# Create index for testing and training data
+inTrain <- createDataPartition(y = df$Price, p = 0.7, list = FALSE)
+
+# subset power_plant data to training
+training <- df[inTrain,]
+
+
+# subset the rest to test
+testing <- df[-inTrain,]
+
+#split
+xgb_train_x_raw<- xgb.DMatrix(as.matrix(training%>% select(-Price)))
+xgb_train_y_raw<-training$Price
+xgb_test_x_raw<-xgb.DMatrix(as.matrix(testing%>% select(-Price)))
+xgb_test_y_raw<-testing$Price
+
+#cv
+xgb_trcontrol = trainControl(
+  method = "cv",
+  number = 3,  
+  allowParallel = TRUE,
+  verboseIter = FALSE,
+  returnData = FALSE
+)
+
+#grid
+xgbGrid <- expand.grid(nrounds = c(100,200),  # this is n_estimators in the python code above
+                       max_depth = c(10, 15, 20),
+                       colsample_bytree = seq(0.5, 0.9, length.out = 5),
+                       ## The values below are default values in the sklearn-api. 
+                       eta = 0.1,
+                       gamma=0,
+                       min_child_weight = 1,
+                       subsample = 1
+                      )
+
+#train
+xgb_model_raw = train(
+  xgb_train_x_raw, xgb_train_y_raw,  
+  trControl = xgb_trcontrol,
+  tuneGrid = xgbGrid,
+  method = "xgbTree"
+)
+#predict
+predicted_raw = predict(xgb_model_raw, xgb_test_x_raw)
+residuals_raw = xgb_test_y_raw - predicted_raw
+RMSE_xgb_test_raw = sqrt(mean(residuals_raw^2))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
